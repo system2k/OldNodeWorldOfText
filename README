@@ -1,0 +1,21 @@
+NodeWorldOfText
+You need the latest version of Git.
+
+NOTE: not complete
+
+How to install:
+	$ git clone https://github.com/system2k/nodeworldoftext nodeworld
+	$ cd nodeworld
+	$ npm install
+	$ node runserver.js
+
+How to run as usual:
+	$ cd nodeworld
+	$ node runserver.js
+
+Optional:
+	$ cd nodeworld
+	$ npm start
+
+Original site source: https://github.com/reverie/yourworldoftext/
+Main site: http://www.yourworldoftext.com/
