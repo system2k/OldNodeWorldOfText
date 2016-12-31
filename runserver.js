@@ -1,29 +1,38 @@
-var http = require("http");
-var url = require("url");
+http = require("http");
+url = require("url");
 var sql = require("sqlite3").verbose(); // sqlite3
 var fs = require("fs"); // file system
 var prompt = require("./program/lib/edited_modules/prompt.js"); // prompter (ask questions/get answers)
-var conf = require("./program/lib/parseConfig.js"); // lex _settings file
 var server = require("./program/nwot/server.js"); // main server script
 var mime = require("./program/lib/mime.js"); // figure out the mime type
-var swig = require("swig"); // html templating engine (like Djangos)
-var querystring = require("querystring"); // parse querystrings
+swig = require("swig"); // html templating engine (like Djangos)
+querystring = require("querystring"); // parse querystrings
 var listdir = require("./program/lib/listdir.js");
 var crypto = require('crypto'); // hash algorithm
-var domain = require('domain');
+domain = require('domain'); // prevent crashes by returning "500"
 
-var DATABASE_NAME = "ywot.sqlite";
-
-var _static = {};
+_static = {};
 var _staticPath = "./program/html/static/";
 var _staticURL = "static/";
 
-var _template = {};
+_template = {};
 var _templatePath = "./program/html/templates/";
 
-var SETTINGS = conf.lexConfig("./_settings.txt");
+SETTINGS = require("./_settings.txt");
 listdir(_static, _staticPath, _staticURL);
 listdir(_template, _templatePath, "");
+
+var DATABASE_PATH = SETTINGS.DATABASE_PATH;
+var CHECK_STATE_PATH = SETTINGS.CHECK_STATE_PATH;
+var LOG_PATH = SETTINGS.LOG_PATH;
+
+var down = false;
+var message = "";
+var date = "No date yet...";
+isDown = function(a) {
+	if(!a) return down
+	if(a) return [message, date];
+}
 
 prompt.message = ""; // do not display "prompt" before each question
 prompt.delimiter = ""; // do not display ":" after "prompt"
@@ -32,9 +41,7 @@ prompt.colors = false; // disable dark gray color in a black console
 var prompt_account_properties = {
 	properties: {
 		username: {
-			message: 'Username: ',
-			validator: /^[a-zA-Z\s\-]+$/,
-			warning: 'Username must be only letters, spaces, or dashes'
+			message: 'Username: '
 		},
 		password: {
 			description: 'Password: ',
@@ -52,20 +59,64 @@ var prompt_account_properties = {
 var prompt_account_yesno = {
 	properties: {
 		yes_no_account: {
-			message: "You just installed the server, which means you don\'t have any superusers defined.\nWould you like to create one now? (yes/no):",
-			validator: /^[a-zA-Z\s\-]+$/,
-			warning: 'Username must be only letters, spaces, or dashes'
+			message: "You just installed the server, which means you don\'t have any superusers defined.\nWould you like to create one now? (yes/no):"
 		}
 	}
 };
 
-var create_tables_grps = {}; // stores numbers which represent the amount of tables added. the key name is the group name.
+var command_props = {
+	properties: {
+		command: {
+			message: ">"
+		}
+	}
+};
 
-var default_tables = ["CREATE TABLE \"auth_group\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"name\" varchar(80) NOT NULL UNIQUE\r\n)\r\n","\r\nCREATE TABLE \"auth_group_permissions\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"group_id\" integer NOT NULL,\r\n    \"permission_id\" integer NOT NULL REFERENCES \"auth_permission\" (\"id\"),\r\n    UNIQUE (\"group_id\", \"permission_id\")\r\n)\r\n","\r\nCREATE TABLE \"auth_message\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"user_id\" integer NOT NULL REFERENCES \"auth_user\" (\"id\"),\r\n    \"message\" text NOT NULL\r\n)\r\n","\r\nCREATE TABLE \"auth_permission\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"name\" varchar(50) NOT NULL,\r\n    \"content_type_id\" integer NOT NULL,\r\n    \"codename\" varchar(100) NOT NULL,\r\n    UNIQUE (\"content_type_id\", \"codename\")\r\n)\r\n","\r\nCREATE TABLE \"auth_user\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"username\" varchar(30) NOT NULL UNIQUE,\r\n    \"first_name\" varchar(30) NOT NULL,\r\n    \"last_name\" varchar(30) NOT NULL,\r\n    \"email\" varchar(75) NOT NULL,\r\n    \"password\" varchar(128) NOT NULL,\r\n    \"is_staff\" bool NOT NULL,\r\n    \"is_active\" bool NOT NULL,\r\n    \"is_superuser\" bool NOT NULL,\r\n    \"last_login\" datetime NOT NULL,\r\n    \"date_joined\" datetime NOT NULL\r\n)\r\n","\r\nCREATE TABLE \"auth_user_groups\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"user_id\" integer NOT NULL,\r\n    \"group_id\" integer NOT NULL REFERENCES \"auth_group\" (\"id\"),\r\n    UNIQUE (\"user_id\", \"group_id\")\r\n)\r\n","\r\nCREATE TABLE \"auth_user_user_permissions\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"user_id\" integer NOT NULL,\r\n    \"permission_id\" integer NOT NULL REFERENCES \"auth_permission\" (\"id\"),\r\n    UNIQUE (\"user_id\", \"permission_id\")\r\n)\r\n","\r\nCREATE TABLE \"django_content_type\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"name\" varchar(100) NOT NULL,\r\n    \"app_label\" varchar(100) NOT NULL,\r\n    \"model\" varchar(100) NOT NULL,\r\n    UNIQUE (\"app_label\", \"model\")\r\n)\r\n","\r\nCREATE TABLE \"django_session\" (\r\n    \"session_key\" varchar(40) NOT NULL PRIMARY KEY,\r\n    \"session_data\" text NOT NULL,\r\n    \"expire_date\" datetime NOT NULL\r\n)\r\n","\r\nCREATE TABLE \"django_site\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"domain\" varchar(100) NOT NULL,\r\n    \"name\" varchar(50) NOT NULL\r\n)\r\n","\r\nCREATE TABLE \"registration_registrationprofile\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"user_id\" integer NOT NULL UNIQUE REFERENCES \"auth_user\" (\"id\"),\r\n    \"activation_key\" varchar(40) NOT NULL\r\n)\r\n","\r\nCREATE TABLE \"ywot_edit\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"user_id\" integer REFERENCES \"auth_user\" (\"id\"),\r\n    \"ip\" char(15),\r\n    \"world_id\" integer NOT NULL REFERENCES \"ywot_world\" (\"id\"),\r\n    \"time\" datetime NOT NULL,\r\n    \"content\" text NOT NULL\r\n)\r\n","\r\nCREATE TABLE \"ywot_tile\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"world_id\" integer NOT NULL REFERENCES \"ywot_world\" (\"id\"),\r\n    \"content\" varchar(128) NOT NULL,\r\n    \"tileY\" integer NOT NULL,\r\n    \"tileX\" integer NOT NULL,\r\n    \"properties\" text NOT NULL,\r\n    \"created_at\" datetime NOT NULL,\r\n    UNIQUE (\"world_id\", \"tileY\", \"tileX\")\r\n)\r\n","\r\nCREATE TABLE \"ywot_whitelist\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"user_id\" integer NOT NULL REFERENCES \"auth_user\" (\"id\"),\r\n    \"world_id\" integer NOT NULL REFERENCES \"ywot_world\" (\"id\"),\r\n    \"created_at\" datetime NOT NULL,\r\n    \"updated_at\" datetime NOT NULL,\r\n    UNIQUE (\"user_id\", \"world_id\")\r\n)\r\n","\r\nCREATE TABLE \"ywot_world\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"name\" text NOT NULL UNIQUE,\r\n    \"owner_id\" integer REFERENCES \"auth_user\" (\"id\"),\r\n    \"created_at\" datetime NOT NULL,\r\n    \"updated_at\" datetime NOT NULL,\r\n    \"public_readable\" bool NOT NULL,\r\n    \"public_writable\" bool NOT NULL,\r\n    \"properties\" text NOT NULL\r\n)"]; // the default table names and arguments
+logProblem = function(err) {
+	if(SETTINGS.error_log) {
+		try{
+			var errs = err;
+			if(typeof errs !== "string") {
+				errs = errs.stack
+			}
+			errs = JSON.stringify(errs);
+			err = "[" + errs + ", " + Date.now() + "]\r\n";
+			fs.appendFile(LOG_PATH, err);
+		}catch(e) {
+			console.log(e)
+		}
+	}
+}
 
-var mimetypes = mime.load();
+var create_tables_grps = {}; // amount of tables added per request
 
-var dtB = new sql.Database("./program/" + DATABASE_NAME); // opens the database. if no database is found, it's created
+var default_tables = [
+"PRAGMA encoding='UTF-16'",
+"\r\nCREATE TABLE \"auth_user\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"username\" varchar(30) NOT NULL UNIQUE,\r\n    \"first_name\" varchar(30) NOT NULL,\r\n    \"last_name\" varchar(30) NOT NULL,\r\n    \"email\" varchar(75) NOT NULL,\r\n    \"password\" varchar(128) NOT NULL,\r\n    \"is_staff\" bool NOT NULL,\r\n    \"is_active\" bool NOT NULL,\r\n    \"is_superuser\" bool NOT NULL,\r\n    \"last_login\" integer NOT NULL,\r\n    \"date_joined\" integer NOT NULL\r\n)\r\n",
+"\r\nCREATE TABLE \"auth_session\" (\r\n    \"session_key\" varchar(40) NOT NULL PRIMARY KEY,\r\n    \"session_data\" text NOT NULL,\r\n    \"expire_date\" integer NOT NULL\r\n)\r\n",
+"\r\nCREATE TABLE \"registration_registrationprofile\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"user_id\" integer NOT NULL UNIQUE REFERENCES \"auth_user\" (\"id\"),\r\n    \"activation_key\" varchar(40) NOT NULL\r\n)\r\n",
+"CREATE TABLE \"edit\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"user_id\" integer REFERENCES \"auth_user\" (\"id\"),\r\n    \"ip\" char(15),\r\n    \"world_id\" integer NOT NULL REFERENCES \"world\" (\"id\"),\r\n    \"tileY\" integer NOT NULL,\r\n    \"tileX\" integer NOT NULL,\r\n    \"time\" integer NOT NULL,\r\n    \"content\" text NOT NULL\r\n)\r\n",
+"\r\nCREATE TABLE \"tile\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"world_id\" integer NOT NULL REFERENCES \"world\" (\"id\"),\r\n    \"content\" varchar(128) NOT NULL,\r\n    \"tileY\" integer NOT NULL,\r\n    \"tileX\" integer NOT NULL,\r\n    \"properties\" text NOT NULL,\r\n    \"created_at\" integer NOT NULL,\r\n    UNIQUE (\"world_id\", \"tileY\", \"tileX\")\r\n)\r\n",
+"\r\nCREATE TABLE \"whitelist\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"user_id\" integer NOT NULL REFERENCES \"auth_user\" (\"id\"),\r\n    \"world_id\" integer NOT NULL REFERENCES \"world\" (\"id\"),\r\n    \"created_at\" integer NOT NULL,\r\n    \"updated_at\" integer NOT NULL,\r\n    UNIQUE (\"user_id\", \"world_id\")\r\n)\r\n",
+"\r\nCREATE TABLE \"world\" (\r\n    \"id\" integer NOT NULL PRIMARY KEY,\r\n    \"name\" text NOT NULL UNIQUE,\r\n    \"owner_id\" integer REFERENCES \"auth_user\" (\"id\"),\r\n    \"created_at\" integer NOT NULL,\r\n    \"updated_at\" integer NOT NULL,\r\n    \"public_readable\" bool NOT NULL,\r\n    \"public_writable\" bool NOT NULL,\r\n    \"properties\" text NOT NULL\r\n)"
+]; // the default table names and arguments
+
+var default_indexes = [
+"CREATE INDEX \"edit_12ff7a21\" ON \"edit\" (\"world_id\")",
+"CREATE INDEX \"edit_403f60f\" ON \"edit\" (\"user_id\")",
+"CREATE INDEX \"tile_12ff7a21\" ON \"tile\" (\"world_id\")",
+"CREATE INDEX \"whitelist_12ff7a21\" ON \"whitelist\" (\"world_id\")",
+"CREATE INDEX \"whitelist_403f60f\" ON \"whitelist\" (\"user_id\")",
+"CREATE INDEX \"world_5d52dd10\" ON \"world\" (\"owner_id\")",
+"CREATE INDEX \"edit_\" ON \"edit\" (\"time\" ASC)"
+]; //default indexes
+
+default_tables = default_tables.concat(default_indexes);
+
+mimetypes = mime.load();
+
+var dtB = new sql.Database(DATABASE_PATH); // opens the database. if no database is found, it's created
+var QTB = new sql.Database(":memory:");
 
 var queue = []; // queue for database commands
 var to_check = false;
@@ -79,44 +130,51 @@ function checkQueue() {
 	var sql = queue[0][1];
 	var clbk = queue[0][2];
 	var args = queue[0][3];
+	var eachFC = queue[0][4];
+	
+	var in_memory = false;
+	
+	if(mtd.charAt(0) === "_") {
+		in_memory = true;
+		mtd = mtd.substr(1);
+	}
+	
 	if(mtd === "run" || mtd === "each" || mtd === "get" || mtd === "all") {
-		if(!args) {
-			if(mtd !== "each") {
-				dtB[mtd](sql, function(a, b){
-					queue.shift();
-					checkQueue();
-					try{
-						if(clbk) clbk(a, b);
-					}catch(e){}
-				});
-			} else {
-				dtB[mtd](sql, function(){}, function(a, b){
-					queue.shift();
-					checkQueue();
-					try{
-						if(clbk) clbk(a, b);
-					}catch(e){}
-				});
+		var OPT = [sql];
+		if(args) OPT.push(args);
+		if(mtd === "each" && !eachFC) OPT.push(function(){});
+		if(mtd === "each" && eachFC) OPT.push(function(a, b){
+			try{
+				if(!a) {
+					eachFC(a, b)
+				} else {
+					var erm = "SQL error: " + JSON.stringify(a);
+					if(args) erm += " with args: " + JSON.stringify(args);
+					erm += " using SQL: " + JSON.stringify(sql);
+					throw erm;
+				}
+			} catch(e) {
+				logProblem(e)
 			}
-		} else {
-			if(mtd !== "each") {
-				dtB[mtd](sql, args, function(a, b){
-					queue.shift();
-					checkQueue();
-					try{
-						if(clbk) clbk(a, b);
-					}catch(e){}
-				});
-			} else {
-				dtB[mtd](sql, args, function(){}, function(a, b){
-					queue.shift();
-					checkQueue();
-					try{
-						if(clbk) clbk(a, b);
-					}catch(e){}
-				});
+		});
+		OPT.push(function(a, b){
+			queue.shift();
+			checkQueue();
+			try{
+				if(!a) {
+					if(clbk) clbk(a, b);
+				} else {
+					var erm = "SQL error: " + JSON.stringify(a);
+					if(args) erm += " with args: " + JSON.stringify(args);
+					erm += " using SQL: " + JSON.stringify(sql);
+					throw erm;
+				}
+			}catch(e){
+				logProblem(e)
 			}
-		}
+		})
+		if(!in_memory) dtB[mtd](...OPT) // SQLite3 does not like ".apply"
+		if(in_memory) QTB[mtd](...OPT)
 	} else {
 		queue.shift();
 		checkQueue();
@@ -124,42 +182,56 @@ function checkQueue() {
 };
 
 function runServer() {
-	var data = { // take the important variables to be accessed by the server module.
-		SETTINGS: SETTINGS,
-		http: http,
-		_static: _static,
-		_template: _template,
-		url: url,
-		mimetypes: mimetypes,
-		swig: swig,
-		querystring: querystring,
-		returnTables: returnTables,
-		createTables: createTables,
-		execSQL: execSQL,
-		escape_sql: escape_sql,
-		make_date: make_date,
-		encryptHash: encryptHash,
-		checkHash: checkHash,
-		domain: domain
-	};
-	server.begin(data); // begin the server with the data.
+	server.begin(); // begin the server.
+	prompt.get(command_props, comm_fc);
 };
 
-function encryptHash(user, pass) {
-	var name = "@" + user + pass;
-	var hash = "$" + crypto.createHash('sha512WithRSAEncryption').update(name).digest('hex');
+function comm_fc(err, res) {
+	var js = res.command;
+	if(js !== "rs" && !js.startsWith("end") && js !== "start") {
+		try{
+			var res = eval(js);
+			console.log(res);
+		} catch(e) {
+			console.log(e);
+		}
+	}
+	try{
+		if(js.startsWith("end")) {
+			var sp = js.substr(4)
+			down = true;
+			message = sp;
+			date = new Date();
+		}
+		if(js === "start") {
+			down = false;
+		}
+	} catch(e) {console.log(e)}
+	prompt.get(command_props, comm_fc);
+}
+
+var pw_encryption = "sha512WithRSAEncryption";
+encryptHash = function(pass, salt) {
+	if(!salt) {
+		var salt = crypto.randomBytes(10).toString("hex")
+	}
+	var hsh = crypto.createHmac(pw_encryption, salt).update(pass).digest("hex")
+	var hash = pw_encryption + "$" + salt + "$" + hsh;
 	return hash;
 };
 
-function checkHash(hash, user, pass) {
-	return encryptHash(user, pass) === hash;
+checkHash = function(hash, pass) {
+	if(typeof hash !== "string") return false;
+	hash = hash.split("$");
+	if(hash.length !== 3) return false;
+	if(typeof pass !== "string") return false;
+	return encryptHash(pass, hash[1]) === hash.join("$");
 };
 
 checkQueue();
 
-function execSQL(mtd, sql, clbk, args) { // execute the sql (pushes into the queue instead)
-	var ar = [mtd, sql, clbk]
-	if(args) ar.push(args)
+execSQL = function(mtd, sql, clbk, args, eachFC) { // execute the sql (pushes into the queue instead)
+	var ar = [mtd, sql, clbk, args, eachFC]
 	queue.push(ar)
 	if(to_check === false) {
 		checkQueue();
@@ -186,78 +258,67 @@ function toUpper(str) {
 	return str.join("");
 }
 var id_0 = 0;
-function createTables(list, callback) {
+createTables = function(list, callback) {
 	var grp = id_0;
 	id_0++;
 	if(create_tables_grps[grp] === undefined) {
 		create_tables_grps[grp] = 0
 	}
-	for(i in list) {
+	for(var i in list) {
 		var sql = list[i];
 		var args = null;
+		var eachFC = null;
 		if(typeof sql === "object") {
+			eachFC = sql[2]
 			args = sql[1]
 			sql = sql[0];
 		}
-		if(!args) {
-			execSQL("run", sql, function(){
-				create_tables_grps[grp]++;
-				if(create_tables_grps[grp] >= list.length) {
-					delete create_tables_grps[grp]
-					callback();
-				}
-			})
-		} else {
-			execSQL("run", sql, function(){
-				create_tables_grps[grp]++;
-				if(create_tables_grps[grp] >= list.length) {
-					delete create_tables_grps[grp]
-					callback();
-				}
-			}, args)
-		}
+		var OPT = ["run", sql, function(){
+			create_tables_grps[grp]++;
+			if(create_tables_grps[grp] >= list.length) {
+				delete create_tables_grps[grp]
+				callback();
+			}
+		}]
+		OPT.push(args)
+		OPT.push(eachFC)
+		execSQL.apply(null, OPT);
 	}
 }
 
 var return_tables_grps = {}
 
-function returnTables(list, callback) {
+returnTables = function(list, callback) {
 	var grp = id_0;
 	id_0++;
 	var data = [];
 	if(return_tables_grps[grp] === undefined) {
 		return_tables_grps[grp] = 0
 	}
-	for(i in list) {
+	for(var i in list) {
 		var sql = list[i];
 		var args = null;
+		var eachFC = null;
 		if(typeof sql === "object") {
+			eachFC = sql[2]
 			args = sql[1]
 			sql = sql[0];
 		}
-		if(!args) {
-			execSQL("get", sql, function(a, b){
-				return_tables_grps[grp]++;
-				data.push(b)
-				if(return_tables_grps[grp] >= list.length) {
-					delete return_tables_grps[grp]
-					callback(data);
-				}
-			})
-		} else {
-			execSQL("get", sql, function(a, b){
-				return_tables_grps[grp]++;
-				data.push(b)
-				if(return_tables_grps[grp] >= list.length) {
-					delete return_tables_grps[grp]
-					callback(data);
-				}
-			}, args)
-		}
+		var OPT = ["get", sql, function(a, b){
+			return_tables_grps[grp]++;
+			data.push(b)
+			if(return_tables_grps[grp] >= list.length) {
+				delete return_tables_grps[grp]
+				callback(data);
+			}
+		}]
+		OPT.push(args)
+		OPT.push(eachFC);
+		execSQL.apply(null, OPT);
 	}
 }
 
-function escape_sql(str) {
+escape_sql = function(str) {
 	str = str.replace(/'/g, "''")
 	str = str.replace(/\"/g, "\"\"")
 	return str
@@ -268,7 +329,7 @@ function pad_string(string, count, character) {
 	return SJ.slice(-count);
 }
 
-function make_date(tst) {
+make_date = function(tst) {
     var date = new Date(tst);
     var month = date.getMonth() + 1;
     var day = date.getDate();
@@ -281,19 +342,40 @@ function make_date(tst) {
     return compile;
 };
 
-//true/false:
-//var var_ = result ? 1 : 0;
-
-
+reverse_date = function(str) {
+	return new Date(str).getTime()
+}
 
 function extr() {
 	passFunc = function(err, result) {
+		var err = false;
 		if(result['password'] !== result['confirmpw']) {
 			console.log("Error: Your passwords didn't match.")
+			err = true;
 			prompt.get(prompt_account_properties, passFunc);
-		}else{
-			var Date_ = make_date(Date.now())
-			var passHash = encryptHash(result["username"], result['password'])
+		} else if(result.password.length > 128) {
+			console.log("The password is too long. It must be 128 characters or less.");
+			err = true;
+			prompt.get(prompt_account_properties, passFunc);
+		}
+
+		if(result.username.length > 30) {
+			console.log("The username must be 30 characters or less.")
+			err = true;
+			prompt.get(prompt_account_properties, passFunc);
+		} else if(result.username.length < 1) {
+			console.log("The username is too short");
+			err = true;
+			prompt.get(prompt_account_properties, passFunc);
+		} else if(!result.username.match(/^(\w*)$/g)) {
+			console.log("The username must contain the following characters: a-z A-Z 0-9 _");
+			err = true;
+			prompt.get(prompt_account_properties, passFunc);
+		}
+		
+		if(!err){
+			var Date_ = Date.now()
+			var passHash = encryptHash(result['password'])
 			execSQL("run", "INSERT INTO auth_user VALUES(null, ?, '', '', '', ?, 1, 1, 1, ?, ?)", function(a, b){
 				console.log("Superuser created successfully.\n");
 				runServer();
@@ -313,7 +395,7 @@ function extr() {
 			prompt.get(prompt_account_yesno, yesNoAccount);
 		}
 	}
-	fs.readFile("./program/checkstate.json", "utf8", function(a, data) {
+	fs.readFile(CHECK_STATE_PATH, "utf8", function(a, data) {
 		if(a !== null) {
 			console.log("Setting up default tables...")
 			createTables(default_tables, function(){
@@ -321,11 +403,13 @@ function extr() {
 				var writeData = {
 					"created": Date.now()
 				}
-				fs.writeFile("./program/checkstate.json", JSON.stringify(writeData), function(b) {
-					prompt.start();
-					prompt.get(prompt_account_yesno, yesNoAccount);
+				fs.writeFile(LOG_PATH, "", function(){
+					fs.writeFile(CHECK_STATE_PATH, JSON.stringify(writeData), function(b) {
+						prompt.start();
+						prompt.get(prompt_account_yesno, yesNoAccount);
+					})
 				})
-			}, "def_tab")
+			})
 		} else {
 			runServer()
 		}

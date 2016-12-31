@@ -19,11 +19,16 @@ img
 }
 
 .protected {
-    background-color: #eee;
+    background-color: #ddd;
 }
 
 #yourworld table {
     table-layout: fixed;
+	line-height: 18px;
+}
+
+#yourworld table tr {
+    height: 18px;
 }
 
 /*

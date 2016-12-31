@@ -1,3 +1,17 @@
-{
-    "port": 80
+/*
+
+ ../ means "parent directory" (might be your user directory)
+
+ ./ means "current directory"
+ 
+ the main server directory is always C:/users/[YourUsername]/nodeworld (unless you changed some "PATH" stuff)
+ 
+*/
+
+module.exports = {
+    port: 80,
+    error_log: true,
+    DATABASE_PATH: "../nwot.sqlite",
+    CHECK_STATE_PATH: "../nwot_checkstate.json",
+    LOG_PATH: "../nwot_log.log"
 }

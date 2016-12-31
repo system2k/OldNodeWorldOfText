@@ -103,6 +103,8 @@ YourWorld.helpers = function() {
     return obj;
 }();
 
+YourWorld.Color = 0;
+
 YourWorld.Config = function(container) {
     // Configuration settings. Dynamically generated to suit container style.
     // Using getters because I really don't want to modify these
@@ -135,7 +137,6 @@ YourWorld.Config = function(container) {
 
     return obj;
 };
-
 
 YourWorld.World = function() {
     // The whole wild world. Initialize with `init`.
@@ -350,7 +351,7 @@ YourWorld.World = function() {
     var editsDone = function(editsReceived) {
         $.each(editsReceived, function(idx, editArray) {
             var tile = getTile(editArray[0], editArray[1]);
-            tile.editDone(editArray[2], editArray[3], editArray[4], editArray[5]);
+            tile.editDone(editArray[2], editArray[3], editArray[4], editArray[5], editArray[6]);
         });
     };
     
@@ -368,7 +369,9 @@ YourWorld.World = function() {
         jQuery.ajax({
             type: 'POST',
             url: window.location.pathname,
-            data: {edits: _edits},
+            data: {
+				edits: JSON.stringify(_edits)
+			},
             success: editsDone,
             dataType: 'json',
             error: editsError
@@ -784,6 +787,38 @@ YourWorld.World = function() {
 			persist: true
 		});
 	};
+	
+	var changeColor = function() {
+		var d;
+		if (_ui.urlInputModal) {
+			d = _ui.urlInputModal;
+		} else {
+			d = document.createElement('div');
+			var html = [];
+			//html.push('<form method="get" action="#" id="url_input_form">');
+			//html.push('<div id="url_input_title" style="max-width:20em"></div><br>');
+			//html.push('<label for="url_input">URL: </label><input type="text" name="url_input" value="">');
+			//html.push('<div id="url_input_submit"><input type="submit" value="   Go   "> or <span id="url_input_cancel" class="simplemodal-close simplemodal-closelink">cancel</span></div>');
+			//html.push('</form>');
+			html.push('<div id="url_input_submit"><input type="submit" value="   Go   "> or <span id="url_input_cancel" class="simplemodal-close simplemodal-closelink">cancel</span></div>');
+			d.innerHTML = html.join('');
+			$(d).hide();
+			$('body').append(d);
+			_ui.urlInputModal = d;
+			$('#url_input_form').submit(function() {
+					var url = document.getElementById('url_input_form').url_input.value;
+					// todo: validate URL?
+					$('#url_input_cancel').trigger('click'); // Close it like this.
+					setTimeout(function(){doUrlLink(url);}, 0);
+					return false; // cancel submit
+				});
+		}
+		$(d).modal({
+			minHeight: 80,
+			minWidth: 160,
+			persist: true
+		});
+	};
 
     var scrollLeftBy = function(dx) { // should be called "scrollXBy"; dx is in pixels
         var newPos = _container.scrollLeft() + dx;
@@ -850,6 +885,12 @@ YourWorld.World = function() {
         if (btmRoom < 0) {
             scrollUpBy(Math.ceil(-btmRoom/_config.charHeight())*_config.charHeight());
         }
+		if(rightRoom > window.innerWidth - 10) {
+			scrollLeftBy(-_config.charWidth());
+		}
+		if(btmRoom > window.innerHeight - 18) {
+			scrollUpBy(-_config.charHeight());
+		}
         
         // Hightlight and store
         _state.selected = el; 
@@ -884,14 +925,24 @@ YourWorld.World = function() {
         // Update character in UI and record pending edit
         _state.selected.innerHTML = YourWorld.helpers.escapeChar(s);
         var timestamp = new Date().getTime();
-        tile.tellEdit(charY, charX, s, timestamp);
-        queueEdit([tileY, tileX, charY, charX, timestamp, s]);
+		var color = YourWorld.Color;
+        tile.tellEdit(charY, charX, s, timestamp, color);
+		var EDIT = [tileY, tileX, charY, charX, timestamp, s];
+		
+		if(color > 0) {
+			_state.selected.style.color = "#" + ("000000" + (color).toString(16)).substr(-6);
+			EDIT.push(color);
+		} else {
+			_state.selected.style.color = "";
+		}
+		
+        queueEdit(EDIT);
     };
     
     var queueEdit = function (arr) {
         // Record a local edit to be transmitted to server
-        // arr is [tileY, tileX, charY, charX, timestamp, char]
-        if (arr.length != 6) {
+        // arr is [tileY, tileX, charY, charX, timestamp, char, color] (color is optional)
+        if (arr.length > 7 && arr.length < 5) {
             throw new Error('Invalid edit');
         }
         _edits.push(arr);
@@ -952,7 +1003,8 @@ YourWorld.World = function() {
         input.style.left = '-1000px';
         input.style.top = '-1000px';
         document.body.appendChild(input);
-        setInterval(function() {
+		
+		setInterval(function() {
             if (input.value) {
                 typeChar(input.value.charAt(0));
                 moveCursor('right');
@@ -1016,8 +1068,16 @@ YourWorld.World = function() {
         fetchUpdates();
         
         //// Add menu options
-        var s, i;
-        // Coords:
+        var s, i, c;
+		
+		// Colors:
+		s = $(document.createElement('div'));
+		s.text('Color');
+		s.click(changeColor);
+		s.click(menu.close);
+		_menu.addEntry(s[0]);
+		
+		// Coords:
         s = $(document.createElement('div'));
         s.text(' Show coordinates');
         i = document.createElement('input');
@@ -1100,6 +1160,15 @@ YourWorld.World = function() {
 
 }();
 
+function compareArray(array1, array2) {
+	if(!array1 || !array2 || !Array.isArray(array1) || !Array.isArray(array2)) return false; // If not array
+	if(array1.length !== array2.length) return false; // If length of array is different
+	for(i in array1) {
+		if(array1[i] !== array2[i]) return false;
+	}
+	return true;
+}
+
 YourWorld.Tile = function() {
     // A single tile of text. 
     var obj = {};
@@ -1145,11 +1214,12 @@ YourWorld.Tile = function() {
 		var $node = $(node);
 		var _content; // string representing tile's last-known state on server (i.e., no local edits)
 		var _initted = false; // whether tile has received initial content data
-		var _pendingEdits = {}; // maps (flattened content index) -> (char, timestamp)
+		var _pendingEdits = {}; // maps (flattened content index) -> (char, timestamp, color)
 		var _protected = false;
 		var _cellProps = null;
+		var _colors;
 		
-		var updateHTML = function(newContent, highlight) {
+		var updateHTML = function(newContent, highlight, newColors) {
 			var c, charY, charX, cell;
 			var contentPos = 0;
 			var sec = parseInt(new Date().getTime()/1000, 10);
@@ -1159,16 +1229,19 @@ YourWorld.Tile = function() {
 			}
 			for (charY=0; charY<config.numRows(); charY++) {
 				for (charX=0; charX<config.numCols(); charX++) {
+					var color = null;
 					if (_pendingEdits[contentPos] && _pendingEdits[contentPos].length) {
 						// Most recent pending edit:
 						c = _pendingEdits[contentPos][_pendingEdits[contentPos].length - 1][0];
+						color = _pendingEdits[contentPos][_pendingEdits[contentPos].length - 1][2];
 					} else {
 						c = newContent[contentPos];
+						color = newColors[contentPos]
 					}
+					cell = obj.getCell(charY, charX);
 					if (c != _content[contentPos]) {
 						// Update the cell
 						c = YourWorld.helpers.escapeChar(c);
-						cell = obj.getCell(charY, charX);
 						cell.innerHTML = c;
 						
 						if (highlight && !cell.style.backgroundColor) {
@@ -1179,12 +1252,17 @@ YourWorld.Tile = function() {
 							}
 						}
 					}
+					if(color > 0) {
+						cell.style.color = "#" + ("000000" + (color).toString(16)).substr(-6);
+					} else {
+						cell.style.color = "";
+					}
 					contentPos++;
 				}
 			}
 		};
 		
-		var setContent = function(newContent) {
+		var setContent = function(newContent, props) {
 			// newContent is either a string, with a char for each cell, or `null` to mean blank
 
 			// First convert content to a string:
@@ -1200,11 +1278,17 @@ YourWorld.Tile = function() {
 				highlight = false;
 				node.style.backgroundColor = '';
 			}
-
+			
+			var newColors = Array(config.numCols() * config.numRows()).fill(0)
+			if(props) {
+				newColors = props;
+			}
 			// Update the content
-			if (newContent != _content) {
-				updateHTML(newContent, highlight);
+			
+			if (newContent != _content || !compareArray(newColors, _colors)) {
+				updateHTML(newContent, highlight, newColors);
 				_content = newContent; // this must come after updateHTML
+				_colors = newColors.slice(0);
 			}
 		};
 		
@@ -1236,14 +1320,18 @@ YourWorld.Tile = function() {
 			// Set new cellProps:
 			$.each(cellProps, function(charY, rowProps) {
 				$.each(rowProps, function(charX, cellProps) {
-					var contentPos, chr, cell;
+					var chr, cell;
 					charY = parseInt(charY, 10);
 					charX = parseInt(charX, 10);
-					contentPos = charY*config.numCols() + charX;
-					chr = _content[contentPos];
-					chr = YourWorld.helpers.escapeChar(chr);
 					cell = obj.getCell(charY, charX);
-					cell.innerHTML = chr;
+					if(cell.childNodes[0]) {
+						if(cell.childNodes[0].childNodes) {
+							if(cell.childNodes[0].childNodes[0]) {
+								var data = cell.childNodes[0].childNodes[0].data;
+								cell.innerHTML = YourWorld.helpers.escapeChar(data);
+							}
+						}
+					}
 					$.each(cellProps, function(propName, val) {
 						var s;
 						if (propName == 'link') {
@@ -1266,6 +1354,8 @@ YourWorld.Tile = function() {
 							} else {
 								//throw new Error('Unknown link type');
 							}
+						} else if(propName === '1') {
+							//$(cell)[0].style.color = "#" + ("000000" + (val).toString(16)).substr(-6);
 						} else {
 							throw new Error('Unknown cell property');
 						}
@@ -1278,7 +1368,7 @@ YourWorld.Tile = function() {
 		obj.initted = function() { return _initted; };
 		obj.isProtected = function() { return _protected; };
 		
-		obj.tellEdit = function(charY, charX, s, timestamp) {
+		obj.tellEdit = function(charY, charX, s, timestamp, color) {
 			// Right now the rendering is handled outside of this class because it's easier,
 			// but we still need to know about the update so that the server's version of 
 			// the tile doesn't overwrite our unsent local changes.
@@ -1289,20 +1379,20 @@ YourWorld.Tile = function() {
 			if (_pendingEdits[index] === undefined) {
 				_pendingEdits[index] = [];
 			}
-			_pendingEdits[index].push([s, timestamp]);
+			_pendingEdits[index].push([s, timestamp, color]);
 		};
 		
 		obj.setProperties = function(p) {
 			// p is either an object or null to mean no data
-			setContent((p && p.content) ? p.content : null);
+			setContent((p && p.content) ? p.content : null, p && p.properties && p.properties.color || null);
 			setProtected(p && p.properties && p.properties['protected'] || false);
 			setCellProps(p && p.properties && p.properties.cell_props || null);
 		};
 		
-		obj.editDone = function(charY, charX, timestamp, s) {
+		obj.editDone = function(charY, charX, timestamp, s, color) {
 			var index = charY * config.numCols() + charX;
 			var ar = _pendingEdits[index];
-			ar.splice($.inArray(ar, [s, timestamp]), 1);
+			ar.splice($.inArray(ar, [s, timestamp, color]), 1);
 		};
 		
 		obj.getCell = function(charY, charX) {
@@ -1326,6 +1416,7 @@ YourWorld.Tile = function() {
 		node.style.backgroundColor = '#eee';
 		node.innerHTML = getDefaultHTML(config);
 		_content = config.defaultContent();
+		_colors = Array(config.numCols() * config.numRows()).fill(0)
 		
 		return obj;
 	}; // end of Tile.create

@@ -1,8 +1,10 @@
 NodeWorldOfText
-You need the latest version of Git.
+You need the Git command line to run these commands.
+https://git-scm.com/
 
-NOTE: not complete
+All the features from the YWOT source have been complete. Additional features are colors and a time machine, which are not complete.
 
+Dollar sign ($) should not be typed:
 How to install:
 	$ git clone https://github.com/system2k/nodeworldoftext nodeworld
 	$ cd nodeworld
@@ -11,11 +13,26 @@ How to install:
 
 How to run as usual:
 	$ cd nodeworld
-	$ node runserver.js
+	$ node runserver.js (or: npm start)
+	
+After installing, some files will be created in your user directory.
+You can change them in _settings.txt:
+"nwot.sqlite" - The database.
+"nwot_checkstate.json" - Tells the server that the server's been created. Delete this and the database to reset the database.
+"nwot_log.log" - All the error and SQL error logs.
 
-Optional:
-	$ cd nodeworld
-	$ npm start
+Port 80 will be used as default. This can be changed in _settings.txt
+To go to your site, type localhost or 127.0.0.1 in your browser URL.
+If you use a port other than 80, type localhost:yourOtherPort or 127.0.0.1:yourOtherPort
+
+-----------------------------------------------------------------
 
 Original site source: https://github.com/reverie/yourworldoftext/
 Main site: http://www.yourworldoftext.com/
+
+
+To stop the site, type in console:
+$ end Your Message
+To start it again, type:
+$ start
+You can also type JavaScript commands.
