@@ -3,6 +3,8 @@ You need the Git command line to run these commands.
 https://git-scm.com/
 
 All the features from the YWOT source have been complete. Additional features are colors and a time machine, which are not complete.
+NOTE: the only way to change the color is to type "YourWorld.Color = 123" in the browser's console where "123" is a number 0 through 16777215
+
 
 Dollar sign ($) should not be typed:
 How to install:
