@@ -173,8 +173,12 @@ function checkQueue() {
 				logProblem(e)
 			}
 		})
-		if(!in_memory) dtB[mtd](...OPT) // SQLite3 does not like ".apply"
-		if(in_memory) QTB[mtd](...OPT)
+		try {
+			if(!in_memory) dtB[mtd](...OPT) // SQLite3 does not like ".apply"
+			if(in_memory) QTB[mtd](...OPT)
+		} catch(e) {
+			logProblem(e)
+		}
 	} else {
 		queue.shift();
 		checkQueue();

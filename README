@@ -3,10 +3,8 @@ You need the Git command line to run these commands.
 https://git-scm.com/
 
 All the features from the YWOT source have been complete. Additional features are colors and a time machine, which are not complete.
-NOTE: the only way to change the color is to type "YourWorld.Color = 123" in the browser's console where "123" is a number 0 through 16777215
 
-
-Dollar sign ($) should not be typed:
+("$" should be there by default)
 How to install:
 	$ git clone https://github.com/system2k/nodeworldoftext nodeworld
 	$ cd nodeworld
@@ -37,4 +35,5 @@ To stop the site, type in console:
 $ end Your Message
 To start it again, type:
 $ start
+("$" should be there if you are using git)
 You can also type JavaScript commands.

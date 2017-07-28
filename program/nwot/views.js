@@ -99,7 +99,200 @@ function csplit(str, rem, count) {
     return result;
 }
 
-//var writeBusy = false;
+function isNum(n) {
+	if(typeof n === "number" && !isNaN(n)) return true;
+	return false;
+}
+
+function WriteTileData(tiles, DAT, wld_id, perm, callback) {
+	var new_queries = []
+	var done = [];
+	
+	var queries = [];
+	for(i in tiles){
+		var POS = i.split(",");
+		POS = [parseInt(POS[0]), parseInt(POS[1])]
+		queries.push(["SELECT * FROM tile WHERE world_id=? AND tileY=? AND tileX=?", [wld_id, POS[0], POS[1]]])
+	}
+	
+	function return_tables_to_edit(data) {
+		new_queries.push("BEGIN TRANSACTION")
+		for (var i in data) {
+			if (data[i]) {
+				var pos = data[i].tileY + "," + data[i].tileX
+				var con = data[i].content.split("")
+				
+				var LNK = JSON.parse(data[i].properties)
+				var _access = false;
+				
+				var prot = false;
+				if(LNK.protected) {
+					prot = true
+				}
+				if(prot) {
+					if(DAT[1].authenticated) {
+						if(DAT[1].id === perm.owner_id) {
+							_access = true
+						}
+					}
+				} else {
+					_access = true
+				}
+				
+				if(_access) {
+					var tdone = [];
+					var ch = false;
+					for (var j in tiles[pos]) {
+						var POS = tiles[pos][j];
+						if(POS) {
+							if(POS[0] !== undefined && POS[1] !== undefined && POS[2] !== undefined && POS[3] !== undefined && POS[4] !== undefined && POS[5] !== undefined) {
+								if(isNum(POS[0]) && isNum(POS[1]) && isNum(POS[2]) && isNum(POS[3])) {
+									if(POS[5].length === 1) {
+										if(LNK.cell_props) {
+											if(LNK.cell_props[POS[2]] !== undefined) {
+												if(LNK.cell_props[POS[2]][POS[3]] !== undefined) {
+													LNK.cell_props[POS[2]][POS[3]] = {};
+												}
+											}
+										}
+										
+										if(POS[6] !== undefined) {
+											if(!isNum(POS[6])) {
+												POS[6] = 0;
+											} else if (POS[6] < 0) {
+												POS[6] = 0;
+											} else if (POS[6] > 16777215) {
+												POS[6] = 16777215;
+											}
+										} else {
+											POS[6] = 0;
+										}
+										if(LNK.color === undefined) {
+											LNK.color = Array(tileWidth * tileHeight).fill(0);
+										}
+										LNK.color[POS[2]*tileWidth+POS[3]] = POS[6];
+										ch = true;
+										con[POS[2] * tileWidth + POS[3]] = POS[5]
+										
+										var done_array = [POS[0], POS[1], POS[2], POS[3], POS[4], POS[5]];
+										if(POS[6]) done_array.push(POS[6]);
+										done.push(done_array)
+										tdone.push(done_array)
+									}
+								}
+							}
+						}
+					}
+					if(ch) {
+						LNK.revision++;
+					}
+					if(tdone.length > 0) {
+						var u_id = DAT[1].id;
+						if(!u_id) u_id = null;
+						var dat = Date.now();
+						var content_ = JSON.stringify(tdone);
+						var tileY = data[i].tileY
+						var tileX = data[i].tileX
+						new_queries.push(["INSERT INTO edit VALUES(null, ?, null, ?, ?, ?, ?, ?)", [u_id, wld_id, tileY, tileX, dat, content_]])
+					}
+					con = con.join("")
+					new_queries.push(["UPDATE tile SET (content,properties)=(?, ?) WHERE world_id=? AND tileY=? AND tileX=?", [con.slice(0,tileArea), JSON.stringify(LNK), wld_id, data[i].tileY, data[i].tileX]])
+				}
+				delete tiles[pos] // delete tiles from cache if they are in the request
+			}
+		}
+		for (var i in tiles) { // insert remaining tiles
+			var con = " ".repeat(tileArea).split("");
+			var LNK = {
+				color: Array(tileWidth * tileHeight).fill(0),
+				revision: 1
+			};
+			
+			var tdone = [];
+			for (var j in tiles[i]) {
+				var POS = tiles[i][j]
+				if(POS) {
+					if(POS[0] !== undefined && POS[1] !== undefined && POS[2] !== undefined && POS[3] !== undefined && POS[4] !== undefined && POS[5] !== undefined) {
+						if(isNum(POS[0]) && isNum(POS[1]) && isNum(POS[2]) && isNum(POS[3])) {
+							if(POS[5].length === 1) {
+								if(POS[6] !== undefined) {
+									if(!isNum(POS[6])) {
+										POS[6] = 0;
+									} else if (POS[6] < 0) {
+										POS[6] = 0;
+									} else if (POS[6] > 16777215) {
+										POS[6] = 16777215;
+									}
+								} else {
+									POS[6] = 0;
+								}
+								LNK.color[POS[2]*tileWidth+POS[3]] = POS[6];
+								
+								con[POS[2] * tileWidth + POS[3]] = POS[5]
+								
+								var done_array = [POS[0], POS[1], POS[2], POS[3], POS[4], POS[5]];
+								if(POS[6]) done_array.push(POS[6]);
+								done.push(done_array)
+								tdone.push(done_array)
+							}
+						}
+					}
+				}
+			}
+			var c = i.split(",");
+			c[0] = parseInt(c[0])
+			c[1] = parseInt(c[1])
+			if(tdone.length > 0) {
+				var u_id = DAT[1].id;
+				if(!u_id) u_id = null;
+				var dat = Date.now();
+				var content_ = JSON.stringify(tdone);
+				var tileY = c[0]
+				var tileX = c[1]
+				new_queries.push(["INSERT INTO edit VALUES(null, ?, null, ?, ?, ?, ?, ?)", [u_id, wld_id, tileY, tileX, dat, content_]])
+			}
+			con = con.join("")
+			var dat = Date.now();
+			new_queries.push(["INSERT INTO tile VALUES(null, ?, ?, ?, ?, ?, ?)", [wld_id, con.slice(0,tileArea), c[0], c[1], JSON.stringify(LNK), dat]]);
+		}
+		if(new_queries.length > 0) {
+			new_queries.push("COMMIT")
+			createTables(new_queries, function(){
+				PerformCallback()
+			})
+		} else {
+			PerformCallback()
+		}
+		function PerformCallback() {
+			TileQuery.shift();
+			Processing_Tile = false;
+			ManageTileQueue();
+			callback([200, JSON.stringify(done)])
+		}
+	}
+	if(queries.length > 0) {
+		returnTables(queries, return_tables_to_edit)
+	} else {
+		TileQuery.shift();
+		Processing_Tile = false;
+		ManageTileQueue();
+		callback([200, JSON.stringify(done)])
+	}
+}
+
+TileQuery = []
+
+var Processing_Tile = false;
+function ManageTileQueue(){
+	if(TileQuery.length === 0) {
+		Processing_Tile = false;
+		return;
+	}
+	if(!Processing_Tile) {
+		Processing_Tile = true;
+		WriteTileData(TileQuery[0][0], TileQuery[0][1], TileQuery[0][2], TileQuery[0][3], TileQuery[0][4])
+	}
+}
 
 module.exports.yourworld = function(req, callback, mod) {
 	var Method = req.method;
@@ -120,7 +313,7 @@ module.exports.yourworld = function(req, callback, mod) {
     if(Method === "POST") {
         req.on('data', function(data) {
             queryData += data;
-            if (queryData.length > 1000000) {
+            if (queryData.length > 10000000) {
                 queryData = "";
                 callback([413, ""])
                 error = true
@@ -143,38 +336,43 @@ module.exports.yourworld = function(req, callback, mod) {
                         module.exports.response_404(req, callback)
                         return;
                     }
+					var prop;
                     function wld(canwrite, canadmin, cl, ul, gtc) {
-                        var comp = swig.compileFile("./program/html/templates/yourworld.html")
-						var dat = {
-							canWrite: canwrite,
-							canAdmin: canadmin,
-							worldName: b.name,
-							features: {
-								coordLink: cl,
-								urlLink: ul,
-								go_to_coord: gtc
+						if(prop.views === undefined) {
+							prop.views = 0;
+						}
+						prop.views++;
+						execSQL("run", "UPDATE world SET properties=? WHERE id=?", function(){
+							var comp = swig.compileFile("./program/html/templates/yourworld.html")
+							var dat = {
+								canWrite: canwrite,
+								canAdmin: canadmin,
+								worldName: b.name,
+								features: {
+									coordLink: cl,
+									urlLink: ul,
+									go_to_coord: gtc
+								}
 							}
-						}
-						if(req.headers['user-agent'].indexOf("MSIE") >= 0) {
-							dat.announce = "Sorry, your World of Text doesn't work well with Internet Explorer."
-						}
-						var dat = {
-                            urlhome: "/home/",
-                            state: JSON.stringify(dat)
-                        }
-                        var output = comp(dat);
-						if(wldname === "style__921") {
-							output += "<style>.tilecont {position: absolute;background-color: #123;}.tilecont td {color: white;}</style>"
-						} else if (mod) {
-							output += "<style>.tilecont {position: absolute;background-color: #ddd;}</style>"
-						}
-                        callback([200, output])
+							if(req.headers['user-agent'].indexOf("MSIE") >= 0) {
+								dat.announce = "Sorry, your World of Text doesn't work well with Internet Explorer."
+							}
+							var dat = {
+								urlhome: "/home/",
+								state: JSON.stringify(dat)
+							}
+							var output = comp(dat);
+							if (mod) { // if time-machine page
+								output += "<style>.tilecont {position: absolute;background-color: #ddd;}</style>"
+							}
+							callback([200, output])
+						}, [JSON.stringify(prop), b.id])
                     }
                     manageDefaultCookie(req.headers.cookie, nxt_)
                     function nxt_(a) {
                         var data = a[1];
                         
-                        var prop = JSON.parse(b.properties);
+                        prop = JSON.parse(b.properties);
                         
 						if(!mod) {
 							var cw; // can_write
@@ -395,7 +593,7 @@ module.exports.yourworld = function(req, callback, mod) {
             }
         }
         if(Method === "POST") {
-            var QD = querystring.parse(queryData, null, null, {maxKeys: 200})
+            var QD = querystring.parse(queryData, null, null, {maxKeys: 1})
             var edi = JSON.parse(QD.edits);
             var DAT;
             function op(wld_id, perm) {
@@ -403,186 +601,22 @@ module.exports.yourworld = function(req, callback, mod) {
                     module.exports.response_404(req, callback)
                     return;
                 }
-                function access_pcd() {
-					/*
-						If the tiles are already in queue and in the same world, push them to another array and
-						block incoming connections to write the remaining data.
-						(use in-memory database)
-					*/
-					if(typeof edi === "string") {
-                        edi = [edi];
-                    }
-					/*if(writeBusy) {
-						var chk = setInterval(function(){
-							if(!writeBusy) {
-								clearInterval(chk);
-								nxt__();
-							}
-						}, 1)
-					} else {
-						nxt__();
-					}*/
-					nxt__()
-					function nxt__(){
-						//writeBusy = true;
-						var tiles = {}
-						var queries = [];
-						var new_queries = []
-						
-						var done = [];
-						
-						for (var i in edi) {
-							if (tiles[edi[i][0] + "," + edi[i][1]] === undefined) {
-								queries.push(["SELECT * FROM tile WHERE world_id=? AND tileY=? AND tileX=?", [wld_id, edi[i][0], edi[i][1]]])
-								tiles[edi[i][0] + "," + edi[i][1]] = []
-							}
-							tiles[edi[i][0] + "," + edi[i][1]].push(edi[i])
+                function access_pcd() { // Access is granted to edit tiles in world
+					var tiles = {} // All tiles, with edits
+					
+					for (var i in edi) {
+						if (tiles[edi[i][0] + "," + edi[i][1]] === undefined) {
+							tiles[edi[i][0] + "," + edi[i][1]] = []
 						}
-						function return_tables_to_edit(data) {
-							new_queries.push("BEGIN TRANSACTION")
-							for (var i in data) {
-								if (data[i]) {
-									var pos = data[i].tileY + "," + data[i].tileX
-									var con = data[i].content.split("")
-									
-									var LNK = JSON.parse(data[i].properties)
-									var _access = false;
-									
-									var prot = false;
-									if(LNK.protected) {
-										prot = true
-									}
-									if(prot) {
-										if(DAT[1].authenticated) {
-											if(DAT[1].id === perm.owner_id) {
-												_access = true
-											}
-										}
-									} else {
-										_access = true
-									}
-									
-									if(_access) {
-										var tdone = [];
-										for (var j in tiles[pos]) {
-											var POS = tiles[pos][j];
-											if(POS) {
-												if(POS[0] !== undefined && POS[1] !== undefined && POS[2] !== undefined && POS[3] !== undefined && POS[4] !== undefined && POS[5] !== undefined) {
-													if(typeof POS[0] === "number" && typeof POS[1] === "number" && typeof POS[2] === "number" && typeof POS[3] === "number" && typeof POS[5] === "string") {
-														if(POS[5].length === 1) {
-															if(LNK.cell_props) {
-																if(LNK.cell_props[POS[2]] !== undefined) {
-																	if(LNK.cell_props[POS[2]][POS[3]] !== undefined) {
-																		LNK.cell_props[POS[2]][POS[3]] = {};
-																	}
-																}
-															}
-															
-															if(POS[6] !== undefined) {
-																if(typeof POS[6] !== "number") {
-																	POS[6] = 0;
-																} else if (POS[6] < 0) {
-																	POS[6] = 0;
-																} else if (POS[6] > 16777215) {
-																	POS[6] = 16777215;
-																}
-															}
-															LNK.color[POS[2]*tileWidth+POS[3]] = POS[6];
-															
-															con[POS[2] * tileWidth + POS[3]] = POS[5]
-															
-															var done_array = [POS[0], POS[1], POS[2], POS[3], POS[4], POS[5]];
-															if(POS[6]) done_array.push(POS[6]);
-															done.push(done_array)
-															tdone.push(done_array)
-														}
-													}
-												}
-											}
-										}
-										if(tdone.length > 0) {
-											var u_id = DAT[1].id;
-											if(!u_id) u_id = null;
-											var dat = Date.now();
-											var content_ = JSON.stringify(tdone);
-											var tileY = data[i].tileY
-											var tileX = data[i].tileX
-											new_queries.push(["INSERT INTO edit VALUES(null, ?, null, ?, ?, ?, ?, ?)", [u_id, wld_id, tileY, tileX, dat, content_]])
-										}
-										con = con.join("")
-										new_queries.push(["UPDATE tile SET (content,properties)=(?, ?) WHERE world_id=? AND tileY=? AND tileX=?", [con.slice(0,tileArea), JSON.stringify(LNK), wld_id, data[i].tileY, data[i].tileX]])
-									}
-									delete tiles[pos] // delete tiles from cache if they are in the request
-								}
-							}
-							for (var i in tiles) { // insert remaining tiles
-								var con = " ".repeat(tileArea).split("");
-								var LNK = {
-									color: Array(tileWidth * tileHeight).fill(0)
-								};
-								
-								var tdone = [];
-								for (var j in tiles[i]) {
-									var POS = tiles[i][j]
-									if(POS) {
-										if(POS[0] !== undefined && POS[1] !== undefined && POS[2] !== undefined && POS[3] !== undefined && POS[4] !== undefined && POS[5] !== undefined) {
-											if(typeof POS[0] === "number" && typeof POS[1] === "number" && typeof POS[2] === "number" && typeof POS[3] === "number" && typeof POS[5] === "string") {
-												if(POS[5].length === 1) {
-													if(POS[6] !== undefined) {
-														if(typeof POS[6] !== "number") {
-															POS[6] = 0;
-														} else if (POS[6] < 0) {
-															POS[6] = 0;
-														} else if (POS[6] > 16777215) {
-															POS[6] = 16777215;
-														}
-														
-														LNK.color[POS[2]*tileWidth+POS[3]] = POS[6];
-													}
-													
-													con[POS[2] * tileWidth + POS[3]] = POS[5]
-													
-													var done_array = [POS[0], POS[1], POS[2], POS[3], POS[4], POS[5]];
-													if(POS[6]) done_array.push(POS[6]);
-													done.push(done_array)
-													tdone.push(done_array)
-												}
-											}
-										}
-									}
-								}
-								var c = i.split(",");
-								c[0] = parseInt(c[0])
-								c[1] = parseInt(c[1])
-								if(tdone.length > 0) {
-									var u_id = DAT[1].id;
-									if(!u_id) u_id = null;
-									var dat = Date.now();
-									var content_ = JSON.stringify(tdone);
-									var tileY = c[0]
-									var tileX = c[1]
-									new_queries.push(["INSERT INTO edit VALUES(null, ?, null, ?, ?, ?, ?, ?)", [u_id, wld_id, tileY, tileX, dat, content_]])
-								}
-								con = con.join("")
-								var dat = Date.now();
-								new_queries.push(["INSERT INTO tile VALUES(null, ?, ?, ?, ?, ?, ?)", [wld_id, con.slice(0,tileArea), c[0], c[1], JSON.stringify(LNK), dat]]);
-							}
-							if(new_queries.length > 0) {
-								new_queries.push("COMMIT")
-								createTables(new_queries, function(){
-									callback([200, JSON.stringify(done)])
-									//writeBusy = false;
-								})
-							} else {
-								callback([200, "[]"])
-								//writeBusy = false;
-							}
-						}
-						returnTables(queries, return_tables_to_edit)
+						if (edi[i][5] === "\n" || edi[i][5] === "\r") edi[i][5] = " ";
+						tiles[edi[i][0] + "," + edi[i][1]].push(edi[i])
 					}
+					
+					TileQuery.push([tiles, DAT, wld_id, perm, callback])
+					ManageTileQueue()
                 }
                 
-                //perm
+                //permissions
                 if(perm.public_writable && perm.public_readable) {
                     access_pcd()
                 } else {
@@ -1162,7 +1196,11 @@ module.exports.coordlink = function(req, callback) {
         }
     }
     function tileaccess() {
-		if(QD.charY < 8 && QD.charX < 16 && QD.charX >= 0 && QD.charY >= 0){
+		QD.charY = parseInt(QD.charY)
+		QD.charX = parseInt(QD.charX)
+		QD.tileY = parseInt(QD.tileY)
+		QD.tileX = parseInt(QD.tileX)
+		if(QD.charY < 8 && QD.charX < 16 && QD.charX >= 0 && QD.charY >= 0 && isNum(QD.charY) && isNum(QD.charX) && isNum(QD.tileY) && isNum(QD.tileX)){
 			world_get_or_create(QD.namespace, res_)
 			function res_(WLD_ID) {
 				execSQL("get", "SELECT * FROM tile WHERE world_id=? AND tileY=? AND tileX=?", tilecall, [WLD_ID, QD.tileY, QD.tileX])
@@ -1278,7 +1316,11 @@ module.exports.urllink = function(req, callback) {
         }
     }
     function tileaccess() {
-		if(QD.charY < 8 && QD.charX < 16 && QD.charX >= 0 && QD.charY >= 0){
+		QD.charY = parseInt(QD.charY)
+		QD.charX = parseInt(QD.charX)
+		QD.tileY = parseInt(QD.tileY)
+		QD.tileX = parseInt(QD.tileX)
+		if(QD.charY < 8 && QD.charX < 16 && QD.charX >= 0 && QD.charY >= 0 && isNum(QD.charY) && isNum(QD.charX) && isNum(QD.tileY) && isNum(QD.tileX)){
 			world_get_or_create(QD.namespace, res_)
 			function res_(WLD_ID) {
 				execSQL("get", "SELECT * FROM tile WHERE world_id=? AND tileY=? AND tileX=?", tilecall, [WLD_ID, QD.tileY, QD.tileX])

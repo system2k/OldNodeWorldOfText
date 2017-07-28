@@ -4,7 +4,8 @@
     "description": "YourWorldOfText written in Node",
     "dependencies": {
         "sqlite3": "3.1.8",
-        "swig": "1.4.2"
+        "swig": "1.4.2",
+	"prompt": "*"
     },
     "scripts": {
         "start": "node runserver.js"

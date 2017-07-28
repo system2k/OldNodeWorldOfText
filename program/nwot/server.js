@@ -113,6 +113,10 @@ module.exports.begin = function() {
 			d.add(res);
 			d.run(function(){
 				process.nextTick(function() {
+					res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+					res.setHeader("Pragma", "no-cache");
+					res.setHeader("Expires", "0");
+					
 					var URL = req.url.substr(1);
 					var CHK = _check(URL);
 					var fc, TY;
