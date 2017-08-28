@@ -16,6 +16,7 @@ img
 .tilecont {
     position: absolute;
     background-color: #fff;
+    transform: translateZ(0);
 }
 
 .protected {
